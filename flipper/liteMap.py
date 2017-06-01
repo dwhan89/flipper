@@ -10,9 +10,10 @@ import scipy
 import pylab
 import copy
 
-import astropy.io.fits as pyfits
+#import astropy.io.fits as pyfits
 #import astropy.wcs as pywcs
-#import pyfits
+import pyfits
+import flipper.fft as fftfast
 
 import astLib
 from astLib import astWCS
@@ -121,10 +122,11 @@ class liteMap:
         #kk[id2] *= np.cos((lEnd-lEnd.min())/(lEnd.max() -lEnd.min())*np.pi/2)
         
         #pylab.loglog(ll,kk)
+        
 
         area = Nx*Ny*self.pixScaleX*self.pixScaleY
         p = np.reshape(kk,[Ny,Nx]) /area * (Nx*Ny)**2
-                
+        assert np.all(p>=0)
         
         realPart = np.sqrt(p)*np.random.randn(Ny,Nx)
         imgPart = np.sqrt(p)*np.random.randn(Ny,Nx)
@@ -132,7 +134,7 @@ class liteMap:
         
         kMap = realPart+1j*imgPart
         
-        data = np.real(np.fft.ifft2(kMap)) 
+        data = np.real(fftfast.ifft(kMap,axes=[-2,-1],normalize=True))
         
         b = bufferFactor
         self.data = data[(b-1)/2*self.Ny:(b+1)/2*self.Ny,(b-1)/2*self.Nx:(b+1)/2*self.Nx]
@@ -201,7 +203,7 @@ class liteMap:
         
         kMap = realPart+1j*imgPart
         
-        data = np.real(np.fft.ifft2(kMap)) 
+        data = np.real(fftfast.ifft(kMap,axes=[-2,-1]),normalize=True) 
         
         b = bufferFactor
         self.data = data[(b-1)/2*self.Ny:(b+1)/2*self.Ny,(b-1)/2*self.Nx:(b+1)/2*self.Nx]
@@ -211,7 +213,7 @@ class liteMap:
 
 
 
-    def selectSubMap(self,x0,x1,y0,y1, safe = False):
+    def selectSubMap(self,x0,x1,y0,y1, safe = False, edge_treatment = False):
         """
         Returns a submap given new map bounds e.g. ra0,ra1,dec0,dec1
 
@@ -239,6 +241,14 @@ class liteMap:
         j1 = np.int(iy1+0.5)
         ixx = np.sort([i0,i1])
         iyy = np.sort([j0,j1])
+
+        if edge_treatment:
+            # Fix from TL and AvE for patches that span ra=0
+            # TODO: test this
+            P=(2*numpy.pi)/self.pixScaleX
+            ixx[1]= ixx[0]+(ixx[1]-ixx[0]+P/2)%P -P/2
+            ixx=numpy.sort(ixx)
+
         #print ixx,iyy
         data = (self.data.copy())[iyy[0]:iyy[1],ixx[0]:ixx[1]]
         wcs = self.wcs.copy()
@@ -519,6 +529,24 @@ class liteMap:
         self.wcs.header['PV2_1'] = map.wcs.header['PV2_1']
         self.wcs.updateFromHeader()
         self.header = self.wcs.header.copy()
+        
+def liteMapsFromEnlibFits(fname):
+    hdu = pyfits.open(fname)[0]
+    wcs = astLib.astWCS.WCS(hdu.header, mode="pyfits")
+    d   = hdu.data
+    # Flipper doesn't handle maps with positive cdelt1, so
+    # flip map in this case.
+    if wcs.header["CDELT1"] > 0:
+        wcs.header.update("CDELT1", -float(wcs.header["CDELT1"]))
+        wcs.header.update("CRPIX1", d.shape[-1]+1-float(wcs.header["CRPIX1"]))
+        # Yes, simply changing the header is not enough
+        wcs = astLib.astWCS.WCS(wcs.header, mode="pyfits")
+        d = d[...,::-1]
+    res = np.empty(np.product(d.shape[:-2],dtype=int),dtype=object)
+    for i, delem in enumerate(d.reshape(-1,d.shape[-2],d.shape[-1])):
+        res[i] = liteMapFromDataAndWCS(delem, wcs)
+
+    return res.reshape(d.shape[:-2])
 
 def liteMapFromFits(file,extension=0):
     """
@@ -745,7 +773,7 @@ def upgradePixelPitch( m, N = 1 ):
     Nx = m.Nx*2**N
     npix = Ny*Nx
 
-    ft = np.fft.fft2(m.data)
+    ft = fftfast.fft(m.data,axes=[-2,-1])
     ftShifted = np.fft.fftshift(ft)
     newFtShifted = np.zeros((Ny, Nx), dtype=np.complex128)
 
@@ -778,11 +806,11 @@ def upgradePixelPitch( m, N = 1 ):
     mPix = np.copy(np.real(ftNew))
     mPix[:] = 0.0
     mPix[mPix.shape[0]/2-(2**(N-1)):mPix.shape[0]/2+(2**(N-1)),mPix.shape[1]/2-(2**(N-1)):mPix.shape[1]/2+(2**(N-1))] = 1./(2.**N)**2
-    ftPix = np.fft.fft2(mPix)
+    ftPix = fftfast.fft(mPix,axes=[-2,-1])
     del mPix
     inds = np.where(ftNew != 0)
     ftNew[inds] /= np.abs(ftPix[inds])
-    newData = np.fft.ifft2(ftNew)*(2**N)**2
+    newData = fftfast.ifft(ftNew,axes=[-2,-1],normalize=True)*(2**N)**2
     del ftNew
     del ftPix
 
@@ -964,7 +992,8 @@ def makeEmptyCEATemplateAdvanced(ra0, dec0, \
     refPix2 = np.int(np.sin(-dec0*np.pi/180.)\
                         *180./np.pi/cdelt2/cosRefDec**2+0.5)
     pv2_1 = cosRefDec**2
-    cardList = pyfits.CardList()
+    cardList = pyfits.Header() #CardList()
+    #cardList = pyfits.CardList()
     cardList.append(pyfits.Card('NAXIS', 2))
     cardList.append(pyfits.Card('NAXIS1', naxis1))
     cardList.append(pyfits.Card('NAXIS2', naxis2))
@@ -992,3 +1021,22 @@ def makeEmptyCEATemplateAdvanced(ra0, dec0, \
     ltMap = liteMapFromDataAndWCS(data,wcs)
     
     return ltMap
+
+
+
+def phiToKappa(phiMap):
+    kappaMap = phiMap.copy()
+    phiF = fftTools.fftFromLiteMap(phiMap)
+    kappaF = phiF.copy()
+    kappaF.kMap *= kappaF.modLMap**2 / 2.
+    kappaMap.data[:] = kappaF.mapFromFFT( setMeanToZero = True)
+    return kappaMap
+
+def kappaToPhi(kappaMap):
+    phiMap = kappaMap.copy()
+    kappaF = fftTools.fftFromLiteMap(kappaMap)
+    phiF = kappaF.copy()
+    phiF.kMap /= (phiF.modLMap**2 / 2.)
+    phiF.kMap[0,0] = 0
+    phiMap.data[:] = phiF.mapFromFFT( setMeanToZero = True)
+    return phiMap
