@@ -203,7 +203,7 @@ class liteMap:
         
         kMap = realPart+1j*imgPart
         
-        data = np.real(fftfast.ifft(kMap,axes=[-2,-1]),normalize=True) 
+        data = np.real(fftfast.ifft(kMap,axes=[-2,-1],normalize=True) )
         
         b = bufferFactor
         self.data = data[(b-1)/2*self.Ny:(b+1)/2*self.Ny,(b-1)/2*self.Nx:(b+1)/2*self.Nx]
@@ -529,7 +529,12 @@ class liteMap:
         self.wcs.header['PV2_1'] = map.wcs.header['PV2_1']
         self.wcs.updateFromHeader()
         self.header = self.wcs.header.copy()
-        
+
+    def getTemplate(self):
+        temp = self.copy()
+        temp.data = np.zeros(temp.data.shape)
+        return temp
+
 def liteMapsFromEnlibFits(fname):
     hdu = pyfits.open(fname)[0]
     wcs = astLib.astWCS.WCS(hdu.header, mode="pyfits")
