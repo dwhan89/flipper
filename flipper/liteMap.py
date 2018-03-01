@@ -10,6 +10,7 @@ import scipy
 import pylab
 import copy
 
+import astropy.wcs
 import astropy.io.fits as pyfits
 #import astropy.wcs as pywcs
 #import pyfits
@@ -412,7 +413,8 @@ class liteMap:
 
     def writeFits(self,filename,overWrite=False):
         """ @brief Write  a liteMap as a Fits file"""
-        pyfits.writeto(filename,self.data,self.header,clobber=overWrite)
+        header_override =  astropy.wcs.WCS(self.header).to_header()
+        pyfits.writeto(filename,self.data,header_override,clobber=overWrite)
 
     def pixToSky(self,ix,iy):
         """
