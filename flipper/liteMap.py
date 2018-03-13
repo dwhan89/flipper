@@ -10,6 +10,7 @@ import scipy
 import pylab
 import copy
 
+import astropy.wcs
 import astropy.io.fits as pyfits
 #import astropy.wcs as pywcs
 #import pyfits
@@ -412,7 +413,8 @@ class liteMap:
 
     def writeFits(self,filename,overWrite=False):
         """ @brief Write  a liteMap as a Fits file"""
-        pyfits.writeto(filename,self.data,self.header,clobber=overWrite)
+        header_override =  astropy.wcs.WCS(self.header).to_header()
+        pyfits.writeto(filename,self.data,header_override,clobber=overWrite)
 
     def pixToSky(self,ix,iy):
         """
@@ -539,7 +541,14 @@ class liteMap:
         assert(unit in ['deg', 'rad'])
         return self.area if unit is 'deg' else self.area * (np.pi/180.)**2
 
+    def getExtent(self, unit='deg'):
+        # return x-axis, y-axis extension (i.e. width and height of the map)
+        assert(unit in ['deg', 'rad'])
 
+        extent = [self.Nx*self.pixScaleX, self.Ny*self.pixScaleY]
+        if unit is 'deg': extent = [ x * (180./np.pi) for x in extent]
+
+        return extent
 
 def liteMapsFromEnlibFits(fname):
     hdu = pyfits.open(fname)[0]
