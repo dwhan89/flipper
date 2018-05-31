@@ -12,8 +12,6 @@ import copy
 
 import astropy.wcs
 import astropy.io.fits as pyfits
-#import astropy.wcs as pywcs
-#import pyfits
 import flipper.fft as fftfast
 
 import astLib
@@ -26,7 +24,7 @@ import flTrace
 import healpy
 import utils
 import time
-from scipy.interpolate import splrep,splev
+from scipy.interpolate import interp1d
 class gradMap:
     """
     @brief  Class describing gradient of a liteMap
@@ -111,19 +109,10 @@ class liteMap:
         iy, ix = np.mgrid[0:Ny,0:Nx]
         modLMap[iy,ix] = np.sqrt(ly[iy]**2+lx[ix]**2)
         
-        s = splrep(ell,Cell,k=3)
-        
         ll = np.ravel(modLMap)
-        kk = splev(ll,s)
+        kk = interp1d(ell, Cell, bounds_error=False, fill_value=0.)(ll)
         id = np.where(ll>ell.max())
-        kk[id] = 0.
-        #add a cosine ^2 falloff at the very end
-        #id2 = np.where( (ll> (ell.max()-500)) & (ll<ell.max()))
-        #lEnd = ll[id2]
-        #kk[id2] *= np.cos((lEnd-lEnd.min())/(lEnd.max() -lEnd.min())*np.pi/2)
-        
-        #pylab.loglog(ll,kk)
-        
+        kk[id] = 0         
 
         area = Nx*Ny*self.pixScaleX*self.pixScaleY
         p = np.reshape(kk,[Ny,Nx]) /area * (Nx*Ny)**2
@@ -174,23 +163,10 @@ class liteMap:
         if bufferFactor > 1:
             ell = np.ravel(twodPower.modLMap)
             Cell = np.ravel(twodPower.powerMap)
-            print ell
-            print Cell
-            s = splrep(ell,Cell,k=3)
-        
-            
             ll = np.ravel(modLMap)
-            kk = splev(ll,s)
-            
-            
+            kk = interp1d(ell, Cell, bounds_error=False, fill_value=0.)(ll)
             id = np.where(ll>ell.max())
-            kk[id] = 0.
-            # add a cosine ^2 falloff at the very end
-            # id2 = np.where( (ll> (ell.max()-500)) & (ll<ell.max()))
-            # lEnd = ll[id2]
-            # kk[id2] *= np.cos((lEnd-lEnd.min())/(lEnd.max() -lEnd.min())*np.pi/2)
-            
-            # pylab.loglog(ll,kk)
+            kk[id] = 0         
 
             area = Nx*Ny*self.pixScaleX*self.pixScaleY
             p = np.reshape(kk,[Ny,Nx]) /area * (Nx*Ny)**2
